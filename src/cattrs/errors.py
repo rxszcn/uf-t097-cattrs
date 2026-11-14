@@ -1,4 +1,4 @@
-from collections.abc import Sequence
+from collections.abc import Iterable, Sequence
 from typing import Any, Optional, Union
 
 from typing_extensions import Self
@@ -113,6 +113,37 @@ class ClassValidationError(BaseValidationError):
                 other_excs.append(subexc)
 
         return excs_with_notes, other_excs
+
+
+class UnknownDiscriminatorValueError(CattrsError, ValueError):
+    """
+    Raised when a union discriminator value is not registered to any union member.
+
+    The attribute `discriminator` is the name of the discriminator field, `value`
+    is the value actually received, and `registered_values` is a tuple of the
+    discriminator values registered to the union members.
+    """
+
+    def __init__(
+        self,
+        message: Optional[str],
+        discriminator: str,
+        value: Any,
+        registered_values: Iterable[Any],
+    ) -> None:
+        self.message = message
+        self.discriminator = discriminator
+        self.value = value
+        self.registered_values = tuple(registered_values)
+
+        super().__init__(message, discriminator, value, self.registered_values)
+
+    def __str__(self) -> str:
+        return self.message or (
+            f"unknown value {self.value!r} for discriminator "
+            f"{self.discriminator!r}, expected one of: "
+            f"{', '.join(sorted(repr(v) for v in self.registered_values))}"
+        )
 
 
 class ForbiddenExtraKeysError(CattrsError):

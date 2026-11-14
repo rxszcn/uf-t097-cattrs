@@ -6,12 +6,16 @@ from itertools import permutations
 from typing import Literal, Union
 
 import pytest
-from attrs import NOTHING, asdict, define, field, fields
+from attrs import NOTHING, asdict, define, field, fields, make_class
 from hypothesis import HealthCheck, assume, given, settings
 
-from cattrs import Converter
+from cattrs import Converter, transform_error
 from cattrs.disambiguators import create_default_dis_func, is_supported_union
-from cattrs.errors import StructureHandlerNotFoundError
+from cattrs.errors import (
+    CattrsError,
+    StructureHandlerNotFoundError,
+    UnknownDiscriminatorValueError,
+)
 from cattrs.gen import make_dict_structure_fn, make_dict_unstructure_fn, override
 
 from .untyped import simple_classes
@@ -495,3 +499,112 @@ def test_dataclasses_literals(converter):
 
     assert converter.structure({"a": "a"}, Union[A, B]) == A()
     assert converter.structure({"b": "b"}, Union[A, B]) == B("b")
+
+
+def test_unregistered_discriminator_value(converter):
+    """Unregistered discriminator values raise a readable structured error."""
+
+    @define
+    class A:
+        kind: Literal["a"]
+        x: int
+
+    @define
+    class B:
+        kind: Literal["b"]
+        y: int
+
+    with pytest.raises(UnknownDiscriminatorValueError) as exc_info:
+        converter.structure({"kind": "z", "x": 1}, Union[A, B])
+
+    exc = exc_info.value
+    assert isinstance(exc, CattrsError)
+    assert isinstance(exc, ValueError)
+    assert exc.discriminator == "kind"
+    assert exc.value == "z"
+    assert set(exc.registered_values) == {"a", "b"}
+    assert transform_error(exc) == [
+        "unknown value 'z' for discriminator 'kind', expected one of: 'a', 'b' @ $"
+    ]
+
+    # Legal discriminator values are dispatched exactly as before.
+    assert converter.structure({"kind": "a", "x": 1}, Union[A, B]) == A("a", 1)
+    assert converter.structure({"kind": "b", "y": 1}, Union[A, B]) == B("b", 1)
+
+
+def test_missing_discriminator_key(converter):
+    """A missing discriminator key is still reported as a missing field."""
+
+    @define
+    class A:
+        kind: Literal["a"]
+        x: int
+
+    @define
+    class B:
+        kind: Literal["b"]
+        y: int
+
+    with pytest.raises(KeyError) as exc_info:
+        converter.structure({"x": 1}, Union[A, B])
+
+    assert exc_info.value.args[0] == "kind"
+    assert transform_error(exc_info.value) == ["required field missing @ $"]
+
+
+@pytest.mark.parametrize("depth", [0, 1, 2, 3])
+def test_unregistered_discriminator_value_nested_paths(depth):
+    """The error path stays accurate for variants nested at any depth."""
+    c = Converter(detailed_validation=True)
+
+    @define
+    class A:
+        kind: Literal["a"]
+        x: int
+
+    @define
+    class B:
+        kind: Literal["b"]
+        y: int
+
+    cl = Union[A, B]
+    payload = {"kind": "z", "x": 1}
+    path = "$"
+    for i in range(depth):
+        cl = make_class(f"Envelope{i}", {"inner": field(type=cl)})
+        payload = {"inner": payload}
+        path = f"{path}.inner"
+
+    with pytest.raises(Exception) as exc_info:
+        c.structure(payload, cl)
+
+    assert transform_error(exc_info.value) == [
+        (
+            f"unknown value 'z' for discriminator 'kind', "
+            f"expected one of: 'a', 'b' @ {path}"
+        )
+    ]
+
+
+def test_unregistered_discriminator_value_nested_no_detailed_validation():
+    """Without detailed validation, the error propagates unwrapped."""
+    c = Converter(detailed_validation=False)
+
+    @define
+    class A:
+        kind: Literal["a"]
+        x: int
+
+    @define
+    class B:
+        kind: Literal["b"]
+        y: int
+
+    @define
+    class Envelope:
+        payload: Union[A, B]
+
+    with pytest.raises(UnknownDiscriminatorValueError) as exc_info:
+        c.structure({"payload": {"kind": "z", "x": 1}}, Envelope)
+
+    assert exc_info.value.value == "z"

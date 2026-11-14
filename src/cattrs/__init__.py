@@ -9,6 +9,7 @@ from .errors import (
     IterableValidationError,
     IterableValidationNote,
     StructureHandlerNotFoundError,
+    UnknownDiscriminatorValueError,
 )
 from .gen import override
 from .types import SimpleStructureHook
@@ -26,6 +27,7 @@ __all__ = [
     "IterableValidationNote",
     "SimpleStructureHook",
     "StructureHandlerNotFoundError",
+    "UnknownDiscriminatorValueError",
     "UnstructureStrategy",
     "get_structure_hook",
     "get_unstructure_hook",

@@ -3,12 +3,14 @@
 from typing import (
     Dict,
     List,
+    Literal,
     MutableMapping,
     MutableSequence,
     Optional,
     Sequence,
     Tuple,
     TypedDict,
+    Union,
 )
 
 from attrs import Factory, define, field
@@ -125,6 +127,34 @@ def test_extra_keys_are_sorted(c: Converter) -> None:
         c.structure({"a": 1, "e": 2, "c": 3, "b": 4, "d": 5}, C)
 
     assert transform_error(exc_info.value) == ["extra fields found (b, c, d, e) @ $"]
+
+
+def test_unknown_discriminator_value_error(c: Converter) -> None:
+    """Unregistered union discriminator values are rendered readably."""
+
+    @define
+    class A:
+        kind: Literal["a"]
+        x: int
+
+    @define
+    class B:
+        kind: Literal["b"]
+        y: int
+
+    @define
+    class C:
+        payload: Union[A, B]
+
+    with raises(Exception) as exc_info:
+        c.structure({"payload": {"kind": "z", "x": 1}}, C)
+
+    assert transform_error(exc_info.value) == [
+        (
+            "unknown value 'z' for discriminator 'kind', "
+            "expected one of: 'a', 'b' @ $.payload"
+        )
+    ]
 
 
 def test_untyped_class_errors(c: Converter) -> None:

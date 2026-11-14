@@ -20,6 +20,7 @@ from ._compat import (
     is_literal,
     is_union_type,
 )
+from .errors import UnknownDiscriminatorValueError
 from .gen import AttributeOverride
 
 if TYPE_CHECKING:
@@ -114,7 +115,13 @@ def create_default_dis_func(
             def dis_func(data: Mapping[Any, Any]) -> type | None:
                 if not isinstance(data, Mapping):
                     raise ValueError("Only input mappings are supported.")
-                return final_mapping[data[best_discriminator]]
+                value = data[best_discriminator]
+                try:
+                    return final_mapping[value]
+                except KeyError:
+                    raise UnknownDiscriminatorValueError(
+                        None, best_discriminator, value, final_mapping.keys()
+                    ) from None
 
             return dis_func
 
